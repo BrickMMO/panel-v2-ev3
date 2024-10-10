@@ -1,237 +1,297 @@
-#!/usr/bin/env pybricks-micropython
-import urequests
-from pybricks.hubs import EV3Brick
-from pybricks.ev3devices import Motor, TouchSensor, ColorSensor
-from pybricks.parameters import Port, Stop, Direction,  Button, Color
-from pybricks.tools import wait
-from pybricks.media.ev3dev import SoundFile
+#!/usr/bin/env python3
+from ev3dev2.motor import LargeMotor, OUTPUT_A, OUTPUT_B, OUTPUT_C, OUTPUT_D, SpeedPercent
+from ev3dev2.sensor.lego import TouchSensor, ColorSensor
+from ev3dev2.sensor import INPUT_1, INPUT_2, INPUT_3, INPUT_4
+from ev3dev2.sound import Sound
+from ev3dev2.motor import MoveTank
+from time import time, sleep
+from urllib.request import urlopen, Request
+from urllib.parse import urlencode
+import json
 
-# Initialize the EV3 brick
-ev3 = EV3Brick()
+# Initialize the EV3 sound object
+ev3 = Sound()
 
-#City Id
-city_id = 1
-
-# Set speaker options for voice
-ev3.speaker.set_speech_options(language="en-us", voice="f2", speed=30, pitch=50)
-ev3.speaker.set_volume(volume=2, which='_all_')
+# City Id
+city_id = "1"
 
 # Initialize motors
-power_lever = Motor(Port.A, Direction.CLOCKWISE)
-motor_B = Motor(Port.B, Direction.CLOCKWISE)
-motor_C = Motor(Port.C, Direction.CLOCKWISE)
-# motor_D = Motor(Port.D, Direction.CLOCKWISE)
+power_lever = LargeMotor(OUTPUT_A)
+motor_B = LargeMotor(OUTPUT_B)
+motor_C = LargeMotor(OUTPUT_C)
+# motor_D = LargeMotor(OUTPUT_D)
 
 # Initialize sensors
-cartridge = ColorSensor(Port.S1)
-switch_2 = TouchSensor(Port.S2)
-switch_3 = TouchSensor(Port.S3)
-switch_4 = TouchSensor(Port.S4)
+cartridge = ColorSensor(INPUT_1)
+switch_2 = TouchSensor(INPUT_2)
+switch_3 = TouchSensor(INPUT_3)
+switch_4 = TouchSensor(INPUT_4)
 
+# Initial states
 power_lever_value = "OFF"
-motor_B_value = "0"
-motor_C_value = "0"
-motor_D_value = "0"
+motor_B_value = 0
+motor_C_value = 0
+motor_D_value = 0
 cartridge_value = None
 switch_2_value = "OFF"
 switch_3_value = "OFF"
 switch_4_value = "OFF"
 
 # Move motor to a default position by running until it stalls
-power_lever.run_until_stalled(speed=-100, then=Stop.HOLD, duty_limit=20)
-initial_power_lever_angle = power_lever.angle()
 
-# Print initial angle for debugging
+power_lever.on(SpeedPercent(-10))  # Start motor at -100% speed
+power_lever.wait_until('stalled')   # Wait until the motor stalls
+power_lever.stop(stop_action="hold")  # brake the motor after it stalls
+
+# Get the initial motor angle (position)
+initial_power_lever_angle = power_lever.position
 print("Initial Angle:", initial_power_lever_angle)
+power_lever.reset()
 
 # Move motor to a target position and reset the angle
-power_lever.run_target(speed=500, target_angle=initial_power_lever_angle + 64, then=Stop.BRAKE, wait=True)
-power_lever.reset_angle(0)
+power_lever.on_for_degrees(SpeedPercent(10), 60, brake=True, block=True)
+print("Angle:", power_lever.position)
+power_lever.reset()
+print("Angle:", power_lever.position)
 
 # Function to turn power lever between 0 (OFF) and 60 (ON) degrees
 def turn_power_lever(value):
     if value == "ON":
-        # Turn lever
-        power_lever.run_target(speed=500, target_angle=60, then=Stop.BRAKE, wait=True)
-        # Play "ON" sound
-        ev3.speaker.play_notes(['C4/8', 'E4/8', 'G4/4'], 300)
+        power_lever.on_to_position(SpeedPercent(10), 60, brake=True, block=True)
+        ev3.play_song((('C4', 'e'),('E4', 'e'),('G4', 'q')))
     elif value == "OFF":
-        # Turn lever
-        power_lever.run_target(speed=-500, target_angle=0, then=Stop.BRAKE, wait=True)
-        # Play "OFF" sound
-        ev3.speaker.play_notes(['G4/8', 'E4/8', 'C4/4'], 120)
+        power_lever.on_to_position(SpeedPercent(-10), 0, brake=True, block=True)
+        ev3.play_song((('G4', 'e'),('E4', 'e'),('C4', 'q')))
 
 # Function to check and toggle power lever position
 def power_lever_position():
-    angle = power_lever.angle()
+    angle = power_lever.position
     print("Current Power Lever Angle: ", angle)
 
     # If the motor is moved away from 0, move it to 60 degrees (ON)
-    if (angle >= -8 and angle <= -3) or (angle >= 3 and angle <= 15):
+    if (angle >= -8 and angle <= -2) or (angle >= 2 and angle <= 15):
         turn_power_lever("ON")
+        update_setting("A","ON")
         return True
 
     # If the motor is moved away from 60, move it back to 0 degrees (OFF)
-    elif (angle >= 50 and angle <= 57) or (angle >= 63 and angle <= 68):
+    elif (angle >= 50 and angle <= 58) or (angle >= 64 and angle <= 68):
         turn_power_lever("OFF")
+        update_setting("A","OFF")
         return False
 
     # Motor is either at 0 or 60 degrees
     return 59 <= angle <= 62
 
-def convert_color_mapping(color):
-    color_mapping = {
-            "BLACK": Color.BLACK,
-            "BLUE": Color.BLUE,
-            "GREEN": Color.GREEN,
-            "YELLOW": Color.YELLOW,
-            "RED": Color.RED,
-            "WHITE": Color.WHITE,
-            "BROWN": Color.BROWN,
-        }
-    return color_mapping.get(color)
-
 # Function to fetch initial settings from the API
 def fetch_current_settings():
-    #DO NOT USE HTTPS
-    url = "http://670422dcab8a8f89273310ce.mockapi.io/api/panel" # Replace with actual API URL
-    
+    request_url = "https://console.brickmmo.com/api/panel/complete/city_id/1"
     try:
-        response = urequests.get(url)
+        request = Request(request_url, data=urlencode({"timestamp": time()}).encode("utf-8"))
+        with urlopen(request, timeout=5) as response:
+            # Read and decode the response once
+            response_data = response.read().decode("utf-8") 
+            print("Raw Response Data:", response_data)
+            data = json.loads(response_data)
+            
+            # Check if the response contains the expected data
+            if "panel" in data:
+                panel_data = data['panel']
+                
+                # Update EV3 panel settings based on the API response
+                global power_lever_value, motor_B_value, motor_C_value, motor_D_value
+                global cartridge_value, switch_2_value, switch_3_value, switch_4_value
 
-        # Check if the response is a redirect (status code 3xx)
-        if 300 <= response.status_code < 400:
-            # Extract the new location from the headers
-            new_url = response.headers.get('Location')
-            print("Redirected to: ", new_url)
-            response = urequests.get(new_url)
-
-        # Parse and process the response
-        print("Complete API Response: ", response.json())
-        panel_data = response.json()[0]['panel']
-        print("Fetched Initial Panel Settings: ", panel_data)
-
-        # Update EV3 panel settings based on the API response
-        global power_lever_value, motor_B_value, motor_C_value, motor_D_value, cartridge_value, switch_2_value, switch_3_value, switch_4_value
-        for setting in panel_data:
-            port_id = setting['port_id']
-            value = setting['value']
-            cartridge = setting.get('cartridge')
-            # Process the values accordingly, for example:
-            if port_id == 'A':
-                if power_lever_value != value :
-                    turn_power_lever(value)
-                    power_lever_value = value 
-                    print("Power Lever initial value: " + value)
-                    
-            if cartridge_value == convert_color_mapping(cartridge):
-                if port_id == 'B':
-                    motor_B_value = value
-                    print("Motor B value for " + cartridge + ": "+ value)
-                elif port_id == 'C':
-                    motor_C_value = value
-                    print("Motor C value for " + cartridge + ": "+ value)
-                elif port_id == 'D':
-                    motor_D_value = value
-                    print("Motor D value for " + cartridge + ": "+ value)
-                elif port_id == 'S2':
-                    switch_2_value = value
-                    print("Switch S2 value for " + cartridge + ": "+ value)
-                elif port_id == 'S3':
-                    switch_3_value = value
-                    print("Switch S3 value for " + cartridge + ": "+ value)
-                elif port_id == 'S4':
-                    switch_4_value = value
-                    print("Switch S4 value for " + cartridge + ": "+ value)
-        response.close()
-
+                for setting in panel_data:
+                    port_id = setting['port_id']
+                    value = setting['value']
+                    cartridge = setting.get('cartridge')
+                    # s1_value = next((setting['value'] for setting in panel_data if setting['port_id'] == 'S1'), None)
+                    if port_id == 'A':
+                        if power_lever_value != value:
+                            turn_power_lever(value)
+                            power_lever_value = value 
+                            print("Power Lever initial value: " + value)
+                    if cartridge_value is not None:
+                        if str(cartridge_value) == cartridge:
+                            if port_id == 'B':
+                                motor_B_value = int(value)
+                                print("Motor B value for " + cartridge + ": "+ value)
+                            elif port_id == 'C':
+                                motor_C_value = int(value)
+                                print("Motor C value for " + cartridge + ": "+ value)
+                            elif port_id == 'D':
+                                motor_D_value = int(value)
+                                print("Motor D value for " + cartridge + ": "+ value)
+                            elif port_id == 'S2':
+                                switch_2_value = value
+                                print("Switch S2 value for " + cartridge + ": "+ value)
+                            elif port_id == 'S3':
+                                switch_3_value = value
+                                print("Switch S3 value for " + cartridge + ": "+ value)
+                            elif port_id == 'S4':
+                                switch_4_value = value
+                                print("Switch S4 value for " + cartridge + ": "+ value)
+            else:
+                print("Unexpected response format: ", data)
+                
     except Exception as e:
         print("Error during API call:", e)
 
 
 # Function to update settings via API when an action occurs on the panel
-def update_setting(port_id, value):
-    url = "http://console.brickmmo.com:7777/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/value/" + value
+def update_setting(port_id, value, cartridge=None):
+    if cartridge is not None:
+        # request_url = "https://console.brickmmo.com/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/cartridge/" + cartridge + "/value/" + value
+        request_url = "https://console.brickmmo.com/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/cartridge/" + cartridge + "/value/" + value +"/id/1"
+    else:
+        # request_url = "https://console.brickmmo.com/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/value/" + value
+        request_url = "https://console.brickmmo.com/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/value/" + value +"/id/1"
+        
     try:
-        response = urequests.post(url)
-        print("Updated port " , port_id , " with value " , value , ". Response: ", response.text)
-        response.close()
+        # Prepare the data and make a POST request
+        print(request_url)
+        request = Request(request_url, data=urlencode({"timestamp": time()}).encode("utf-8"))
+        with urlopen(request, timeout=5) as response:
+            print(response.read())
+            response_data = response.read().decode("utf-8") 
+            data = json.loads(response_data)
+            print("Updated port " , port_id , " with value " , value , ". Response: ", data)
+            response.close()
 
     except Exception as e:
         print("Error while updating setting for port " , port_id , " : " , e)
 
-# function to check cartridge
+# Function to check the current cartridge
 def check_current_cartridge():
     global cartridge_value
-    current_cartridge = cartridge.color()
+    current_cartridge = cartridge.color_name.upper()
     print("Current Cartridge: ", current_cartridge)
-    # Fetch settings only if the cartridge value has changed
-    if current_cartridge != cartridge_value and current_cartridge != None:
+    if current_cartridge != cartridge_value and current_cartridge is not None:
         print("Cartridge has changed from ", cartridge_value, " to ", current_cartridge)
         cartridge_value = current_cartridge
-        # Delay for cartridge change
-        wait(2000)
-        fetch_current_settings()
+        sleep(2)
+        if cartridge_value != "NOCOLOR":
+            update_setting("S1",str(cartridge_value))
+            fetch_current_settings()
     else:
         print("Cartridge remains the same:", current_cartridge)
+
+# Function to handle motor value increment/decrement based on angle change
+def motor_angle_to_value(prev_angle, current_angle):
+    # Determine the angle change (can be positive or negative)
+    angle_diff = current_angle - prev_angle
+
+    # If the angle increased, the motor is spinning clockwise
+    if angle_diff > 0:
+        return 5  # Increment by 5
+    # If the angle decreased, the motor is spinning counterclockwise
+    elif angle_diff < 0:
+        return -5  # Decrement by 5
+    # No significant change in angle
+    else:
+        return 0
+
+# Function to toggle switch state between ON and OFF
+def toggle_switch(value):
+    return "OFF" if value == "ON" else "ON"
+
+# Function to handle switch and motor interactions for different cartridges
+def handle_panel_interactions():
+    global power_lever_value, motor_B_value, motor_C_value, motor_D_value
+    global cartridge_value, switch_2_value, switch_3_value, switch_4_value
     
-# New function to handle switch press and cartridge check
-def handle_panel_interactions(current_cartridge):
-    # Check if cartridge is BLUE and handle switch presses
-    if current_cartridge == Color.BLUE:
-        if switch_2.pressed():
-            print("Switch 2 is pressed with BLUE cartridge!")
-            ev3.speaker.beep()
-            update_setting('BLUE','S2', 'ON')
+    # Track previous motor positions to calculate change in angles
+    prev_motor_B_angle = motor_B.position
+    prev_motor_C_angle = motor_C.position
+    # prev_motor_D_angle = motor_D.position
+    
+    color_name = cartridge_value
+    
+    # Check cartridge and handle interactions
+    if color_name != "NOCOLOR" and color_name != None:
+        # Handle switch S2
+        if switch_2.is_pressed:
+            switch_2_value = toggle_switch(switch_2_value)
+            print("Switch 2 is pressed with", color_name, "cartridge! Value:", switch_2_value)
+            ev3.beep()
+            update_setting('S2', switch_2_value,color_name)
 
-        if switch_3.pressed():
-            print("Switch 3 is pressed with BLUE cartridge!")
-            ev3.speaker.beep()
-            update_setting('BLUE','S3', 'ON')
+        # Handle switch S3
+        if switch_3.is_pressed:
+            switch_3_value = toggle_switch(switch_3_value)
+            print("Switch 3 is pressed with", color_name, "cartridge! Value:", switch_3_value)
+            ev3.beep()
+            update_setting('S3', switch_3_value,color_name)
 
-        if switch_4.pressed():
-            print("Switch 4 is pressed with BLUE cartridge!")
-            ev3.speaker.beep()
-            update_setting('BLUE','S4', 'ON')
+        # Handle switch S4
+        if switch_4.is_pressed:
+            switch_4_value = toggle_switch(switch_4_value)
+            print("Switch 4 is pressed with", color_name, "cartridge! Value:", switch_4_value)
+            ev3.beep()
+            update_setting('S4', switch_4_value,color_name)
 
-    # Check if cartridge is RED and handle switch presses
-    elif current_cartridge == Color.RED:
-        if switch_2.pressed():
-            print("Switch 2 is pressed with RED cartridge!")
-            ev3.speaker.beep()
-            update_setting('RED','S2', 'OFF')
+        # Handle motor B
+        current_motor_B_angle = motor_B.position
+        angle_change_B = motor_angle_to_value(prev_motor_B_angle, current_motor_B_angle)
+        motor_B_value += angle_change_B
+        print(motor_B_value)
+        if angle_change_B != 0 and (motor_B_value >=0 and motor_B_value <= 100):
+            motor_B_value = max(0, min(100, motor_B_value))
+            print("Motor B value updated for", color_name, ":", motor_B_value)
+            ev3.beep()
+            update_setting('B', str(motor_B_value), color_name)
+        elif motor_B_value < -5 or motor_B_value > 105:
+            motor_B_value = 0 if motor_B_value < -5 else 100
 
-        if switch_3.pressed():
-            print("Switch 3 is pressed with RED cartridge!")
-            ev3.speaker.beep()
-            update_setting('RED','S3', 'OFF')
+        # Handle motor C
+        current_motor_C_angle = motor_C.position
+        angle_change_C = motor_angle_to_value(prev_motor_C_angle, current_motor_C_angle)
+        motor_C_value += angle_change_C
+        if angle_change_C != 0 and motor_C_value >=0 and motor_C_value <= 100:
+            motor_C_value = max(0, min(100, motor_C_value))
+            print("Motor C value updated for", color_name, ":", motor_C_value)
+            ev3.beep()
+            update_setting('C', str(motor_C_value), color_name)
+        elif motor_C_value < -5 or motor_C_value > 105:
+            motor_C_value = 0 if motor_C_value < -5 else 100
+       
+        # # Handle motor D
+        # current_motor_D_angle = motor_D.position
+        # angle_change_D = motor_angle_to_value(prev_motor_D_angle, current_motor_D_angle)
+        #  motor_D_value += angle_change_D
+        # if angle_change_D != 0 and motor_D_value >=0 and motor_D_value <= 100:
+        #     motor_D_value = max(0, min(100, motor_D_value))
+        #     print("Motor D value updated for", color_name, ":", motor_D_value)
+        #     ev3.beep()
+        #     update_setting('D', str(motor_D_value), color_name)
+        # elif motor_D_value < -5 or motor_D_value > 105:
+        #     motor_D_value = 0 if motor_D_value < -5 else 100
+            
+            
+        prev_motor_B_angle = current_motor_B_angle
+        prev_motor_C_angle = current_motor_C_angle
+        # prev_motor_D_angle = current_motor_D_angle
 
-        if switch_4.pressed():
-            print("Switch 4 is pressed with RED cartridge!")
-            ev3.speaker.beep()
-            update_setting('RED','S4', 'OFF')
-
-    # Add more conditions for other cartridges if needed
     else:
         print("No recognized cartridge inserted.")
 
 
-# Main loop to check motor switch and sensor state
+# Main loop to check motor, switch, and sensor state
 def main():
-    ev3.speaker.beep()  # Start signal
+    ev3.beep()  # Start signal
     fetch_current_settings()
 
     while True:
-        # Check power lever position and toggle between ON and OFF
         motor_on = power_lever_position()
         
         # If the motor is ON, check the current cartridge and switch presses
         if motor_on:
             check_current_cartridge()
-            handle_panel_interactions(cartridge_value)
+            handle_panel_interactions()
 
         # Small delay to avoid overloading the CPU
-        wait(1500)
+        sleep(0.3)
 
 # Entry point of the program
 if __name__ == "__main__":
