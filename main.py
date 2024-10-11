@@ -37,22 +37,22 @@ switch_2_value = "OFF"
 switch_3_value = "OFF"
 switch_4_value = "OFF"
 
-# Move motor to a default position by running until it stalls
+def reset_power_lever():
+    # Move motor to a default position by running until it stalls
+    power_lever.on(SpeedPercent(-10))  # Start motor at -10% speed
+    power_lever.wait_until('stalled')   # Wait until the motor stalls
+    power_lever.stop(stop_action="hold")  # brake the motor after it stalls
 
-power_lever.on(SpeedPercent(-10))  # Start motor at -100% speed
-power_lever.wait_until('stalled')   # Wait until the motor stalls
-power_lever.stop(stop_action="hold")  # brake the motor after it stalls
+    # Get the initial motor angle (position)
+    initial_power_lever_angle = power_lever.position
+    print("Initial Angle:", initial_power_lever_angle)
+    power_lever.reset()
 
-# Get the initial motor angle (position)
-initial_power_lever_angle = power_lever.position
-print("Initial Angle:", initial_power_lever_angle)
-power_lever.reset()
-
-# Move motor to a target position and reset the angle
-power_lever.on_for_degrees(SpeedPercent(10), 60, brake=True, block=True)
-print("Angle:", power_lever.position)
-power_lever.reset()
-print("Angle:", power_lever.position)
+    # Move motor to a target position and reset the angle
+    power_lever.on_for_degrees(SpeedPercent(10), 60, brake=True, block=True)
+    print("Angle Before Reset:", power_lever.position)
+    power_lever.reset()
+    print("Angle After Reset:", power_lever.position)
 
 # Function to turn power lever between 0 (OFF) and 60 (ON) degrees
 def turn_power_lever(value):
@@ -279,7 +279,10 @@ def handle_panel_interactions():
 
 # Main loop to check motor, switch, and sensor state
 def main():
+    
+    reset_power_lever()
     ev3.beep()  # Start signal
+    
     fetch_current_settings()
 
     while True:
