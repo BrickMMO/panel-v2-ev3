@@ -85,7 +85,7 @@ def power_lever_position():
 
 # Function to fetch initial settings from the API
 def fetch_current_settings():
-    request_url = "https://console.brickmmo.com/api/panel/complete/city_id/1"
+    request_url = "https://console.brickmmo.com/api/panel/complete/city_id/" + city_id
     try:
         request = Request(request_url, data=urlencode({"timestamp": time()}).encode("utf-8"))
         with urlopen(request, timeout=5) as response:
@@ -141,6 +141,10 @@ def fetch_current_settings():
 
 # Function to update settings via API when an action occurs on the panel
 def update_setting(port_id, value, cartridge=None):
+    # Handle value 0 url encoding
+    if value == "0":
+        value = "%30"
+        
     if cartridge is not None:
         # request_url = "https://console.brickmmo.com/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/cartridge/" + cartridge + "/value/" + value
         request_url = "https://console.brickmmo.com/api/panel/update/city_id/" + city_id + "/port_id/"+ port_id + "/cartridge/" + cartridge + "/value/" + value +"/id/1"
@@ -174,6 +178,7 @@ def check_current_cartridge():
         if cartridge_value != "NOCOLOR":
             update_setting("S1",str(cartridge_value))
             fetch_current_settings()
+            ev3.beep()
     else:
         print("Cartridge remains the same:", current_cartridge)
 
@@ -235,12 +240,11 @@ def handle_panel_interactions():
         current_motor_B_angle = motor_B.position
         angle_change_B = motor_angle_to_value(prev_motor_B_angle, current_motor_B_angle)
         motor_B_value += angle_change_B
-        print(motor_B_value)
         if angle_change_B != 0 and (motor_B_value >=0 and motor_B_value <= 100):
             motor_B_value = max(0, min(100, motor_B_value))
             print("Motor B value updated for", color_name, ":", motor_B_value)
-            ev3.beep()
             update_setting('B', str(motor_B_value), color_name)
+            ev3.beep() if angle_change_B > 0 else ev3.beep(args='-r 2')
         elif motor_B_value < -5 or motor_B_value > 105:
             motor_B_value = 0 if motor_B_value < -5 else 100
 
@@ -251,8 +255,8 @@ def handle_panel_interactions():
         if angle_change_C != 0 and motor_C_value >=0 and motor_C_value <= 100:
             motor_C_value = max(0, min(100, motor_C_value))
             print("Motor C value updated for", color_name, ":", motor_C_value)
-            ev3.beep()
             update_setting('C', str(motor_C_value), color_name)
+            ev3.beep() if angle_change_C > 0 else ev3.beep(args='-r 2')
         elif motor_C_value < -5 or motor_C_value > 105:
             motor_C_value = 0 if motor_C_value < -5 else 100
        
@@ -263,8 +267,8 @@ def handle_panel_interactions():
         # if angle_change_D != 0 and motor_D_value >=0 and motor_D_value <= 100:
         #     motor_D_value = max(0, min(100, motor_D_value))
         #     print("Motor D value updated for", color_name, ":", motor_D_value)
-        #     ev3.beep()
         #     update_setting('D', str(motor_D_value), color_name)
+        #     ev3.beep() if angle_change_D > 0 else ev3.beep(args='-r 2')
         # elif motor_D_value < -5 or motor_D_value > 105:
         #     motor_D_value = 0 if motor_D_value < -5 else 100
             
@@ -294,7 +298,7 @@ def main():
             handle_panel_interactions()
 
         # Small delay to avoid overloading the CPU
-        sleep(0.3)
+        sleep(0.2)
 
 # Entry point of the program
 if __name__ == "__main__":
