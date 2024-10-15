@@ -19,7 +19,7 @@ city_id = "1"
 power_lever = LargeMotor(OUTPUT_A)
 motor_B = LargeMotor(OUTPUT_B)
 motor_C = LargeMotor(OUTPUT_C)
-# motor_D = LargeMotor(OUTPUT_D)
+motor_D = LargeMotor(OUTPUT_D)
 
 # Initialize sensors
 cartridge = ColorSensor(INPUT_1)
@@ -209,7 +209,7 @@ def handle_panel_interactions():
     # Track previous motor positions to calculate change in angles
     prev_motor_B_angle = motor_B.position
     prev_motor_C_angle = motor_C.position
-    # prev_motor_D_angle = motor_D.position
+    prev_motor_D_angle = motor_D.position
     
     color_name = cartridge_value
     
@@ -261,21 +261,21 @@ def handle_panel_interactions():
             motor_C_value = 0 if motor_C_value < -5 else 100
        
         # # Handle motor D
-        # current_motor_D_angle = motor_D.position
-        # angle_change_D = motor_angle_to_value(prev_motor_D_angle, current_motor_D_angle)
-        #  motor_D_value += angle_change_D
-        # if angle_change_D != 0 and motor_D_value >=0 and motor_D_value <= 100:
-        #     motor_D_value = max(0, min(100, motor_D_value))
-        #     print("Motor D value updated for", color_name, ":", motor_D_value)
-        #     update_setting('D', str(motor_D_value), color_name)
-        #     ev3.beep() if angle_change_D > 0 else ev3.beep(args='-r 2')
-        # elif motor_D_value < -5 or motor_D_value > 105:
-        #     motor_D_value = 0 if motor_D_value < -5 else 100
+        current_motor_D_angle = motor_D.position
+        angle_change_D = motor_angle_to_value(prev_motor_D_angle, current_motor_D_angle)
+        motor_D_value += angle_change_D
+        if angle_change_D != 0 and motor_D_value >=0 and motor_D_value <= 100:
+            motor_D_value = max(0, min(100, motor_D_value))
+            print("Motor D value updated for", color_name, ":", motor_D_value)
+            update_setting('D', str(motor_D_value), color_name)
+            ev3.beep() if angle_change_D > 0 else ev3.beep(args='-r 2')
+        elif motor_D_value < -5 or motor_D_value > 105:
+            motor_D_value = 0 if motor_D_value < -5 else 100
             
             
         prev_motor_B_angle = current_motor_B_angle
         prev_motor_C_angle = current_motor_C_angle
-        # prev_motor_D_angle = current_motor_D_angle
+        prev_motor_D_angle = current_motor_D_angle
 
     else:
         print("No recognized cartridge inserted.")
