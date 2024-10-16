@@ -55,7 +55,7 @@ def main():
     
     while True:
         
-        ev3.beep()
+        print("Program Started")
 
         fetch_setting()
 
